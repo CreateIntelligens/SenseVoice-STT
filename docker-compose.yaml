@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  sensevoice-api:
+    build: .
+    container_name: sensevoice-api
+    ports:
+      - "50002:50002"
+    volumes:
+      # 掛載整個專案目錄以支援熱更新
+      - .:/app
+      # 模型持久化存儲
+      - ./models:/app/models
+    environment:
+      - SENSEVOICE_DEVICE=cuda:0
+      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    networks:
+      - sensevoice-network
+
+networks:
+  sensevoice-network:
+    driver: bridge
+
+# 可選：如果需要持久化模型數據
+volumes:
+  models-data:
+    driver: local

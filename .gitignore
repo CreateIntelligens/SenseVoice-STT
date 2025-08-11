@@ -1,0 +1,143 @@
+# 模型文件（保留 models 目錄結構，但忽略內容）
+models/*
+!models/.gitkeep
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Lock 文件
+package-lock.json
+yarn.lock
+Pipfile.lock
+poetry.lock
+composer.lock
+*.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虛擬環境
+venv/
+ENV/
+env/
+.venv/
+.ENV/
+.env/
+
+# 環境變數
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# 系統文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# 日誌
+*.log
+logs/
+log/
+
+# 臨時文件
+*.tmp
+*.temp
+temp/
+tmp/
+.cache/
+
+# 測試文件
+test_audio/
+test_files/
+test_data/
+*.wav
+*.mp3
+*.flac
+*.m4a
+
+# 備份文件
+*.bak
+*.backup
+*~
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

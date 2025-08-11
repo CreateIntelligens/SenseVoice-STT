@@ -1,0 +1,3 @@
+# 這個文件用於保留 models 目錄結構
+# 模型文件會在首次運行時自動下載到此目錄
+# 目錄結構：models/iic/SenseVoiceSmall/
