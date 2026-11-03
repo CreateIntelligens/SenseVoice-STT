@@ -1,16 +1,41 @@
 """Protect the shared GPU host from requests that need too much memory."""
 
 import os
+from io import BytesIO
+from typing import List, Optional
 
+import soundfile as sf
 from fastapi import HTTPException
 
 # The encoder's attention grows with the square of the audio length: 34 minutes needed at least 36.6 GiB and took the
 # whole host down, while 12 minutes works. 15 minutes is an estimated 7 GiB.
 DEFAULT_MAX_AUDIO_SECONDS = 900.0
+# 15 minutes of 96 kHz stereo 16-bit WAV is about 330 MB; FastAPI holds the whole body in memory before the handler runs.
+DEFAULT_MAX_UPLOAD_MB = 512.0
 
 
 def max_audio_seconds() -> float:
     return float(os.getenv("MAX_AUDIO_SECONDS", DEFAULT_MAX_AUDIO_SECONDS))
+
+
+def max_upload_bytes() -> int:
+    return int(float(os.getenv("MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB)) * 1024 * 1024)
+
+
+def upload_too_large(content_length: Optional[str], limit: int) -> bool:
+    """Decide from the header, before the body is read. Chunked uploads send no length and are not covered."""
+    return content_length is not None and content_length.isdigit() and int(content_length) > limit
+
+
+def total_audio_seconds(files: List[bytes]) -> float:
+    """Read each file's length from its header, without decoding. A file that cannot be read is the caller's error."""
+    total = 0.0
+    for index, file in enumerate(files):
+        try:
+            total += sf.info(BytesIO(file)).duration
+        except sf.LibsndfileError:
+            raise HTTPException(status_code=400, detail=f"File {index + 1} is not readable audio.") from None
+    return total
 
 
 def reject_if_too_long(total_seconds: float, limit: float) -> None:

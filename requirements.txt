@@ -10,4 +10,3 @@ opencc-python-reimplemented
 soundfile
 asr-decoder
 online-fbank
-pyctcdecode

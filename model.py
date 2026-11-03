@@ -790,7 +790,6 @@ class SenseVoiceSmall(nn.Module):
         tokenizer=None,
         frontend=None,
         hotwords: Optional[str] = None,
-        use_pyctcdecode: bool = False,
         **kwargs,
     ):
 
