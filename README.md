@@ -79,6 +79,10 @@ docker-compose restart
 
 ## API 使用
 
+### 音訊長度上限
+
+單次請求的音訊總長超過 `MAX_AUDIO_SECONDS`（預設 900 秒）會回 HTTP 413。模型不切段，記憶體隨長度平方增長：34 分鐘至少要 36.6 GiB，足以拖垮共用 GPU 的機器。更長的音檔請先切段再送。
+
 ### `/api/v1/asr` 語音識別 API
 
 #### 端點資訊

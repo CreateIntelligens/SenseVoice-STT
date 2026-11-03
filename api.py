@@ -16,6 +16,8 @@ from model import SenseVoiceSmall
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 from io import BytesIO
 
+from request_guard import InferenceFailure, max_audio_seconds, reject_if_too_long
+
 # 設定 ModelScope 快取目錄到當前目錄，這樣模型會下載到 ./models/iic/SenseVoiceSmall
 os.environ['MODELSCOPE_CACHE'] = '.'
 
@@ -168,10 +170,12 @@ async def _process_audio(files: List[bytes], keys: str, lang: Language, hotwords
     # 記錄開始時的記憶體狀態
     log_gpu_memory("API 請求開始")
     
-    with gpu_memory_cleanup():
+    failure = InferenceFailure()
+    with gpu_memory_cleanup(), failure:
         try:
             audios = []
             audio_fs = 0
+            total_seconds = 0.0
             
             # 處理音頻文件
             for file in files:
@@ -184,8 +188,11 @@ async def _process_audio(files: List[bytes], keys: str, lang: Language, hotwords
                 if len(data_or_path_or_list.shape) > 1:
                     data_or_path_or_list = data_or_path_or_list.mean(1)
                 audios.append(data_or_path_or_list)
+                total_seconds += len(data_or_path_or_list) / audio_fs
                 file_io.close()
             
+            reject_if_too_long(total_seconds, max_audio_seconds())
+
             log_gpu_memory("音頻載入完成")
             
             # 處理參數
@@ -242,6 +249,8 @@ async def _process_audio(files: List[bytes], keys: str, lang: Language, hotwords
             log_gpu_memory("發生錯誤")
             print(f"API 錯誤: {str(e)}")
             raise e
+
+    failure.raise_if_failed()
 
 @app.post("/api/v1/asr")
 async def turn_audio_to_text(
