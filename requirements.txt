@@ -7,3 +7,7 @@ numpy<=1.26.4
 gradio
 fastapi>=0.111.1
 opencc-python-reimplemented
+soundfile
+asr-decoder
+online-fbank
+pyctcdecode

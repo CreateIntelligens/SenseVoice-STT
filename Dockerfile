@@ -22,7 +22,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 安裝 PyTorch（GPU 版本）
-RUN pip3 install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip3 install -U --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu130
 
 # 安裝其他 Python 依賴
 RUN pip3 install --no-cache-dir -r requirements.txt

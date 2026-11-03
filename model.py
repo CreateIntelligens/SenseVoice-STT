@@ -1,4 +1,3 @@
-
 import time
 import torch
 from torch import nn
@@ -14,6 +13,11 @@ from funasr.losses.label_smoothing_loss import LabelSmoothingLoss
 from funasr.metrics.compute_acc import compute_accuracy, th_accuracy
 from funasr.utils.load_utils import load_audio_text_image_video, extract_fbank
 from utils.ctc_alignment import ctc_forced_align
+
+try:
+    from asr_decoder import CTCDecoder
+except ImportError:
+    CTCDecoder = None
 
 class SinusoidalPositionEncoder(torch.nn.Module):
     """ """
@@ -785,9 +789,10 @@ class SenseVoiceSmall(nn.Module):
         key: list = ["wav_file_tmp_name"],
         tokenizer=None,
         frontend=None,
+        hotwords: Optional[str] = None,
+        use_pyctcdecode: bool = False,
         **kwargs,
     ):
-
 
         meta_data = {}
         if (
@@ -858,6 +863,20 @@ class SenseVoiceSmall(nn.Module):
         if kwargs.get("ban_emo_unk", False):
             ctc_logits[:, :, self.emo_dict["unk"]] = -float("inf")
 
+        # Decoder setup for hotwords
+        decoder = None
+        
+        if CTCDecoder is not None and hotwords is not None:
+            contexts = hotwords.split(" ")
+            if not hasattr(self, "symbol_table"):
+                self.symbol_table = {}
+                for i in range(tokenizer.get_vocab_size()):
+                    self.symbol_table[tokenizer.decode([i])] = i
+            
+            tokenizer_conf = kwargs.get("tokenizer_conf")
+            bpe_model = tokenizer_conf.get("bpemodel") if tokenizer_conf else None
+            decoder = CTCDecoder(contexts, self.symbol_table, bpe_model)
+
         results = []
         b, n, d = encoder_out.size()
         if isinstance(key[0], (list, tuple)):
@@ -866,20 +885,41 @@ class SenseVoiceSmall(nn.Module):
             key = key * b
         for i in range(b):
             x = ctc_logits[i, : encoder_out_lens[i].item(), :]
-            yseq = x.argmax(dim=-1)
-            yseq = torch.unique_consecutive(yseq, dim=-1)
+            override_text = None
+            
+            if decoder is not None:
+                logits_for_decoder = x[4:, :] if x.size(0) > 4 else x
+                
+                # probs needs to be on CPU for asr-decoder usually
+                # Increase beam_size to 35 as a compromise between speed and accuracy
+                # 50 was too slow (4-5s), 25 was acceptable (1.2s) but maybe swallowed too much?
+                # Let's try 35.
+                res = decoder.ctc_prefix_beam_search(logits_for_decoder.cpu(), beam_size=35, is_last=True)
+                beam_tokens = res["tokens"][0]
+                
+                # Reconstruct full token sequence by prepending prefix tokens from the first 4 frames
+                # This ensures downstream logic (timestamp, text processing) works consistently
+                prefix_tokens = x[:4, :].argmax(dim=-1).tolist() if x.size(0) >= 4 else []
+                token_int = prefix_tokens + beam_tokens
+                # text = tokenizer.decode(token_int) # Will decode later
+            else:
+                yseq = x.argmax(dim=-1)
+                yseq = torch.unique_consecutive(yseq, dim=-1)
+                mask = yseq != self.blank_id
+                token_int = yseq[mask].tolist()
 
+            # Change integer-ids to tokens
+            if override_text is not None:
+                text = override_text
+            else:
+                text = tokenizer.decode(token_int)
+            
             ibest_writer = None
             if kwargs.get("output_dir") is not None:
                 if not hasattr(self, "writer"):
                     self.writer = DatadirWriter(kwargs.get("output_dir"))
                 ibest_writer = self.writer[f"1best_recog"]
 
-            mask = yseq != self.blank_id
-            token_int = yseq[mask].tolist()
-
-            # Change integer-ids to tokens
-            text = tokenizer.decode(token_int)
             if ibest_writer is not None:
                 ibest_writer["text"][key[i]] = text
 
@@ -910,7 +950,8 @@ class SenseVoiceSmall(nn.Module):
                     if pred_token != 0:
                         ts_left = max((_start*60-30)/1000, 0)
                         ts_right = min((_end*60-30)/1000, (ts_max*60-30)/1000)
-                        timestamp.append([tokens[token_id], ts_left, ts_right])
+                        if token_id < len(tokens):
+                            timestamp.append([tokens[token_id], ts_left, ts_right])
                         token_id += 1
                     _start = _end
 
