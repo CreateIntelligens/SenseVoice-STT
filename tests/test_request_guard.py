@@ -18,6 +18,7 @@ from request_guard import (
     max_audio_seconds,
     max_upload_bytes,
     reject_if_too_long,
+    reject_mixed_sample_rates,
     total_audio_seconds,
     upload_too_large,
 )
@@ -130,6 +131,26 @@ def test_audio_too_short_for_the_frontend_is_a_client_error_naming_the_file(fram
 
 def test_shortest_audio_the_frontend_accepts_passes():
     assert total_audio_seconds([wav_bytes(2 / 16000)]) == pytest.approx(2 / 16000)
+
+
+@pytest.mark.parametrize("rates", [(16000, 8000), (8000, 16000), (16000, 16000, 44100)])
+def test_mixed_sample_rates_are_a_client_error_listing_them(rates):
+    with pytest.raises(HTTPException) as error:
+        reject_mixed_sample_rates([wav_bytes(1, rate=rate) for rate in rates])
+    assert error.value.status_code == 400
+    for rate in rates:
+        assert str(rate) in error.value.detail
+
+
+@pytest.mark.parametrize("rates", [(16000,), (44100,), (8000, 8000)])
+def test_files_sharing_one_sample_rate_pass(rates):
+    reject_mixed_sample_rates([wav_bytes(1, rate=rate) for rate in rates])
+
+
+def test_sample_rates_are_read_without_decoding():
+    with mock.patch.object(request_guard.sf, "read") as read:
+        reject_mixed_sample_rates([wav_bytes(1)])
+    read.assert_not_called()
 
 
 @pytest.mark.parametrize(

@@ -52,6 +52,16 @@ def reject_if_too_long(total_seconds: float, limit: float) -> None:
         )
 
 
+def reject_mixed_sample_rates(files: List[bytes]) -> None:
+    """Refuse a batch with several rates. The model resamples every file from one rate, so speech can vanish silently."""
+    rates = sorted({sf.info(BytesIO(file)).samplerate for file in files})
+    if len(rates) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"All files in one request must share a sample rate; got {', '.join(map(str, rates))} Hz.",
+        )
+
+
 class InferenceFailure:
     """Drop a failed request's exception before the GPU cache is emptied.
 

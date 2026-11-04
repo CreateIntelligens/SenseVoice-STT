@@ -21,6 +21,7 @@ from request_guard import (
     max_audio_seconds,
     max_upload_bytes,
     reject_if_too_long,
+    reject_mixed_sample_rates,
     total_audio_seconds,
     upload_too_large,
 )
@@ -188,6 +189,7 @@ async def _process_audio(files: List[bytes], keys: str, lang: Language, hotwords
     with gpu_memory_cleanup(), failure:
         try:
             reject_if_too_long(total_audio_seconds(files), max_audio_seconds())
+            reject_mixed_sample_rates(files)
 
             audios = []
             audio_fs = 0
