@@ -1,19 +1,30 @@
 # Set the device with environment, default is cuda:0
 # export SENSEVOICE_DEVICE=cuda:1
 
-import os, re, gc
+import os, re, gc, traceback
 import torch
 import contextlib
 import opencc
-from fastapi import FastAPI, File, Form
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from typing_extensions import Annotated
-from typing import List
+from typing import List, Optional
 from enum import Enum
-import torchaudio
+import soundfile as sf
+import numpy as np
 from model import SenseVoiceSmall
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 from io import BytesIO
+
+from request_guard import (
+    InferenceFailure,
+    max_audio_seconds,
+    max_upload_bytes,
+    reject_if_too_long,
+    reject_mixed_sample_rates,
+    total_audio_seconds,
+    upload_too_large,
+)
 
 # 設定 ModelScope 快取目錄到當前目錄，這樣模型會下載到 ./models/iic/SenseVoiceSmall
 os.environ['MODELSCOPE_CACHE'] = '.'
@@ -65,6 +76,13 @@ regex = r"<\|.*\|>"
 converter = opencc.OpenCC('s2t')
 
 app = FastAPI()
+
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    limit = max_upload_bytes()
+    if upload_too_large(request.headers.get("content-length"), limit):
+        return JSONResponse(status_code=413, content={"detail": f"Upload exceeds {limit // (1024 * 1024)} MB."})
+    return await call_next(request)
 
 def convert_to_traditional(text: str) -> str:
     """將簡體中文轉換為繁體中文"""
@@ -163,21 +181,29 @@ async def manual_cleanup():
             "message": "CUDA not available"
         }
 
-@app.post("/api/v1/asr")
-async def turn_audio_to_text(files: Annotated[List[bytes], File(description="wav or mp3 audios in 16KHz")], keys: Annotated[str, Form(description="name of each audio joined with comma")], lang: Annotated[Language, Form(description="language of audio content")] = "auto"):
+async def _process_audio(files: List[bytes], keys: str, lang: Language, hotwords: Optional[str] = None):
     # 記錄開始時的記憶體狀態
     log_gpu_memory("API 請求開始")
     
-    with gpu_memory_cleanup():
+    failure = InferenceFailure()
+    with gpu_memory_cleanup(), failure:
         try:
+            reject_if_too_long(total_audio_seconds(files), max_audio_seconds())
+            reject_mixed_sample_rates(files)
+
             audios = []
             audio_fs = 0
             
             # 處理音頻文件
             for file in files:
                 file_io = BytesIO(file)
-                data_or_path_or_list, audio_fs = torchaudio.load(file_io)
-                data_or_path_or_list = data_or_path_or_list.mean(0)
+                # 使用 soundfile 直接讀取，避免 torchaudio 的 torchcodec 問題
+                audio_data, audio_fs = sf.read(file_io, dtype='float32')
+                # 轉換為 torch tensor
+                data_or_path_or_list = torch.from_numpy(audio_data)
+                # 如果是多聲道，取平均
+                if len(data_or_path_or_list.shape) > 1:
+                    data_or_path_or_list = data_or_path_or_list.mean(1)
                 audios.append(data_or_path_or_list)
                 file_io.close()
             
@@ -198,6 +224,7 @@ async def turn_audio_to_text(files: Annotated[List[bytes], File(description="wav
                     language=lang, # "zh", "en", "yue", "ja", "ko", "nospeech"
                     use_itn=True,
                     ban_emo_unk=False,
+                    hotwords=hotwords,
                     key=key,
                     fs=audio_fs,
                     **kwargs,
@@ -231,7 +258,29 @@ async def turn_audio_to_text(files: Annotated[List[bytes], File(description="wav
             
             return result
             
+        except HTTPException:
+            raise
         except Exception as e:
             log_gpu_memory("發生錯誤")
             print(f"API 錯誤: {str(e)}")
+            traceback.print_exc()
             raise e
+
+    failure.raise_if_failed()
+
+@app.post("/api/v1/asr")
+async def turn_audio_to_text(
+    files: Annotated[List[bytes], File(description="wav or mp3 audios in 16KHz")], 
+    keys: Annotated[str, Form(description="name of each audio joined with comma")], 
+    lang: Annotated[Language, Form(description="language of audio content")] = "auto"
+):
+    return await _process_audio(files, keys, lang, hotwords=None)
+
+@app.post("/api/v1/asr-hot")
+async def turn_audio_to_text_hot(
+    files: Annotated[List[bytes], File(description="wav or mp3 audios in 16KHz")], 
+    keys: Annotated[str, Form(description="name of each audio joined with comma")], 
+    hotwords: Annotated[str, Form(description="hotwords for ASR, separated by space")],
+    lang: Annotated[Language, Form(description="language of audio content")] = "auto"
+):
+    return await _process_audio(files, keys, lang, hotwords=hotwords)
