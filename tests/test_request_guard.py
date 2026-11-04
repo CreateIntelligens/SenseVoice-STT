@@ -120,6 +120,18 @@ def test_unreadable_audio_is_a_client_error_naming_the_file(bad):
     assert "File 2" in error.value.detail
 
 
+@pytest.mark.parametrize("frames", [0, 1])
+def test_audio_too_short_for_the_frontend_is_a_client_error_naming_the_file(frames):
+    with pytest.raises(HTTPException) as error:
+        total_audio_seconds([wav_bytes(1), wav_bytes(frames / 16000)])
+    assert error.value.status_code == 400
+    assert "File 2" in error.value.detail
+
+
+def test_shortest_audio_the_frontend_accepts_passes():
+    assert total_audio_seconds([wav_bytes(2 / 16000)]) == pytest.approx(2 / 16000)
+
+
 @pytest.mark.parametrize(
     "header, expected",
     [("1000", False), ("1001", True), (None, False), ("not-a-number", False)],

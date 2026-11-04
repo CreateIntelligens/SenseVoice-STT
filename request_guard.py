@@ -12,6 +12,8 @@ from fastapi import HTTPException
 DEFAULT_MAX_AUDIO_SECONDS = 900.0
 # 15 minutes of 96 kHz stereo 16-bit WAV is about 330 MB; FastAPI holds the whole body in memory before the handler runs.
 DEFAULT_MAX_UPLOAD_MB = 512.0
+# The fbank frontend asserts at least 2 samples per window and turns anything shorter into a generic 500.
+MIN_AUDIO_FRAMES = 2
 
 
 def max_audio_seconds() -> float:
@@ -28,13 +30,16 @@ def upload_too_large(content_length: Optional[str], limit: int) -> bool:
 
 
 def total_audio_seconds(files: List[bytes]) -> float:
-    """Read each file's length from its header, without decoding. A file that cannot be read is the caller's error."""
+    """Read each file's length from its header, without decoding. Unreadable or too-short audio is the caller's error."""
     total = 0.0
     for index, file in enumerate(files):
         try:
-            total += sf.info(BytesIO(file)).duration
+            info = sf.info(BytesIO(file))
         except sf.LibsndfileError:
             raise HTTPException(status_code=400, detail=f"File {index + 1} is not readable audio.") from None
+        if info.frames < MIN_AUDIO_FRAMES:
+            raise HTTPException(status_code=400, detail=f"File {index + 1} has no usable audio.")
+        total += info.duration
     return total
 
 
